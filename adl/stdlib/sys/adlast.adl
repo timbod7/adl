@@ -1,6 +1,6 @@
+/// Types to represent an ADL syntax tree
 module sys.adlast
 {
-// Types to represent an ADL syntax tree
 
 import sys.types.*;
 
@@ -9,24 +9,45 @@ type Ident = String;
 
 type Annotations = Map<ScopedName,Json>;
 
-
 struct ScopedName
 {
     ModuleName moduleName;
     Ident name;
 };
 
-union TypeRef
+struct ScopedNameTypeRef
 {
-    Ident primitive;
-    Ident typeParam;
-    ScopedName reference;
+    ScopedName scopedName;
+    Vector<TypeExpr> parameters;
 };
 
-struct TypeExpr
+union Primitive
 {
-    TypeRef typeRef;
-    Vector<TypeExpr> parameters;
+    Void Void;
+    Void String;
+    Void Boolean;
+    Void Float;
+    Void Double;
+    Void Int8;
+    Void Int16;
+    Void Int32;
+    Void Int64;
+    Void Word8;
+    Void Word16;
+    Void Word32;
+    Void Word64;
+    Void ByteVector;
+    Void Json;
+    TypeExpr Vector;
+    TypeExpr StringMap;
+    TypeExpr Nullable;
+};
+
+union TypeExpr
+{
+    Primitive primitive;
+    Ident typeParam;
+    ScopedNameTypeRef reference;
 };
 
 struct Field
@@ -74,7 +95,6 @@ union DeclType
 struct Decl
 {
     Ident name;
-    Maybe<Word32> version;
     DeclType type_;
     Annotations annotations;
 };
@@ -85,11 +105,12 @@ struct ScopedDecl
     Decl decl;
 };
 
-type DeclVersions = Vector<Decl>;
-
 union Import
 {
+    /// Import all names from a module
     ModuleName moduleName;
+ 
+    /// Import a single name from a module
     ScopedName scopedName;
 };
 
@@ -99,6 +120,11 @@ struct Module
     Vector<Import> imports;
     StringMap<Decl> decls;
     Annotations annotations;
+};
+
+struct Model
+{
+    StringMap<Module> modules;
 };
 
 };
