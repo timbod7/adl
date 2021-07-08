@@ -26,15 +26,15 @@ data Circle = Circle
 mkCircle :: Prelude.Double -> Circle
 mkCircle radius = Circle radius
 
-instance AdlValue Circle where
-    atype _ = "picture.Circle"
-    
-    jsonGen = genObject
+jbCircle :: JsonBinding Circle
+jbCircle = JsonBinding
+    { atype_ = "picture.Circle"
+    , jsonGen_ = genObject
         [ genField "radius" circle_radius
         ]
-    
-    jsonParser = Circle
+    , jsonParser_ = Circle
         <$> parseField "radius"
+    }
 
 data Picture
     = Picture_circle Circle
@@ -43,22 +43,24 @@ data Picture
     | Picture_translated (Translated Picture)
     deriving (Prelude.Eq,Prelude.Ord,Prelude.Show)
 
-instance AdlValue Picture where
-    atype _ = "picture.Picture"
+jbPicture :: JsonBinding Picture
+jbPicture = JsonBinding
+    { atype_ = "picture.Picture"
     
-    jsonGen = genUnion (\jv -> case jv of
-        Picture_circle v -> genUnionValue "circle" v
-        Picture_rectangle v -> genUnionValue "rectangle" v
-        Picture_composed v -> genUnionValue "composed" v
-        Picture_translated v -> genUnionValue "translated" v
+    , jsonGen_ = genUnion (\jv -> case jv of
+        Picture_circle v -> genUnionValue_ jbCircle "circle" v
+        Picture_rectangle v -> genUnionValue_ jbRectangle "rectangle" v
+        Picture_composed v -> genUnionValue_ (jbVector jbPicture) "composed" v
+        Picture_translated v -> genUnionValue_ (jbTranslated jbPicture) "translated" v
         )
     
-    jsonParser = parseUnion $ \disc -> case disc of
-        "circle" ->  parseUnionValue Picture_circle
-        "rectangle" ->  parseUnionValue Picture_rectangle
-        "composed" ->  parseUnionValue Picture_composed
-        "translated" ->  parseUnionValue Picture_translated
-        _ -> parseFail "expected a discriminator for Picture (circle,rectangle,composed,translated)" 
+    , jsonParser_ = parseUnion $ \disc -> case disc of
+        "circle" ->  parseUnionValue_ jbCircle  Picture_circle
+        "rectangle" ->  parseUnionValue_  jbRectangle Picture_rectangle
+        "composed" ->  parseUnionValue_ (jbVector jbPicture) Picture_composed
+        "translated" ->  parseUnionValue_ (jbTranslated jbPicture) Picture_translated
+        _ -> parseFail "expected a discriminator for Picture (circle,rectangle,composed,translated)"
+    }
 
 data Rectangle = Rectangle
     { rectangle_width :: Prelude.Double
@@ -69,18 +71,19 @@ data Rectangle = Rectangle
 mkRectangle :: Prelude.Double -> Prelude.Double -> Rectangle
 mkRectangle width height = Rectangle width height
 
-instance AdlValue Rectangle where
-    atype _ = "picture.Rectangle"
-    
-    jsonGen = genObject
-        [ genField "width" rectangle_width
-        , genField "height" rectangle_height
-        ]
-    
-    jsonParser = Rectangle
-        <$> parseField "width"
-        <*> parseField "height"
-
+jbRectangle :: JsonBinding Rectangle
+jbRectangle = JsonBinding
+    { atype_ = "picture.Rectangle"
+    , jsonGen_ = genObject
+          [ genField_ jbDouble "width" rectangle_width
+          , genField_ jbDouble "height" rectangle_height
+          ]
+      
+    , jsonParser_ = Rectangle
+          <$> parseField_ jbDouble "width"
+          <*> parseField_ jbDouble "height"
+    }
+--
 data Translated t = Translated
     { translated_xoffset :: Prelude.Double
     , translated_yoffset :: Prelude.Double
@@ -91,19 +94,21 @@ data Translated t = Translated
 mkTranslated :: t -> Translated t
 mkTranslated object = Translated 0 0 object
 
-instance (AdlValue t) => AdlValue (Translated t) where
-    atype _ = T.concat
+jbTranslated :: JsonBinding a -> JsonBinding (Translated a)
+jbTranslated jbA = JsonBinding
+    { atype_ = T.concat
         [ "picture.Translated"
-        , "<", atype (Data.Proxy.Proxy :: Data.Proxy.Proxy t)
+        , "<", atype_ jbA
         , ">" ]
     
-    jsonGen = genObject
-        [ genField "xoffset" translated_xoffset
-        , genField "yoffset" translated_yoffset
-        , genField "object" translated_object
+    , jsonGen_ = genObject
+        [ genField_ jbDouble "xoffset" translated_xoffset
+        , genField_ jbDouble "yoffset" translated_yoffset
+        , genField_ jbA "object" translated_object
         ]
     
-    jsonParser = Translated
-        <$> parseFieldDef "xoffset" 0
-        <*> parseFieldDef "yoffset" 0
-        <*> parseField "object"
+    , jsonParser_ = Translated
+        <$> parseFieldDef_ jbDouble "xoffset" 0
+        <*> parseFieldDef_ jbDouble "yoffset" 0
+        <*> parseField_ jbA "object"
+    }

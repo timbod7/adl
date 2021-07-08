@@ -2,6 +2,7 @@
 module ADL.Core.Value(
   JsonGen(..),
   JsonParser(..),
+  JsonBinding(..),
   ParseResult(..),
   ParseContextItem(..),
   AdlValue(..),
@@ -15,18 +16,25 @@ module ADL.Core.Value(
   adlToJsonFile,
   decodeAdlParseResult,
   genField,
+  genField_,
   genObject,
   genUnion,
   genUnionValue,
+  genUnionValue_,
   genUnionVoid,
   parseField,
+  parseField_,
   parseFieldDef,
+  parseFieldDef_,
   parseUnion,
   parseUnionValue,
+  parseUnionValue_,
   parseUnionVoid,
   parseFail,
   textFromParseContext,
-  withJsonObject
+  withJsonObject,
+  jbVector,
+  jbDouble,
 ) where
 
 import qualified Data.Aeson as JS
@@ -51,6 +59,19 @@ newtype JsonGen a = JsonGen {runJsonGen :: a -> JS.Value}
 
 -- | A Json parser
 newtype JsonParser a = JsonParser {runJsonParser :: ParseContext -> JS.Value -> ParseResult a}
+
+data JsonBinding a = JsonBinding {
+
+  -- | A text string describing the type.
+  atype_ :: T.Text,
+
+  -- | A JSON generator for this ADL type
+  jsonGen_ :: JsonGen a,
+
+  -- | A JSON parser for this ADL type
+  jsonParser_ :: JsonParser a
+}
+
 
 -- | A path within a json value, used in error reporting
 type ParseContext = [ParseContextItem]
@@ -110,6 +131,9 @@ parseNull = jsonParser
 adlToJson :: AdlValue a => a -> JS.Value
 adlToJson = runJsonGen jsonGen
 
+adlToJson_ :: JsonBinding a ->  a -> JS.Value
+adlToJson_ jb = runJsonGen (jsonGen_ jb)
+
 -- Convert a JSON value to an ADL value
 adlFromJson :: AdlValue a => JS.Value -> ParseResult a
 adlFromJson = runJsonParser jsonParser []
@@ -163,11 +187,17 @@ genObject fieldfns = JsonGen (\o -> JS.object [f o | f <- fieldfns])
 genField :: AdlValue a => T.Text -> (o -> a) -> o -> (T.Text, JS.Value)
 genField label f o = (label,adlToJson (f o))
 
+genField_ :: JsonBinding a -> T.Text -> (o -> a) -> o -> (T.Text, JS.Value)
+genField_ jb label f o = (label,adlToJson_ jb (f o))
+
 genUnion :: (u -> JS.Value) -> JsonGen u
 genUnion f = JsonGen f
 
 genUnionValue :: AdlValue a => T.Text -> a -> JS.Value
 genUnionValue disc a = JS.object [(disc,adlToJson a)]
+
+genUnionValue_ :: JsonBinding a -> T.Text -> a -> JS.Value
+genUnionValue_ jb disc a = JS.object [(disc,adlToJson_ jb a)]
 
 genUnionVoid :: T.Text -> JS.Value
 genUnionVoid disc = JS.toJSON disc
@@ -177,9 +207,19 @@ parseField label = withJsonObject $ \ctx hm -> case HM.lookup label hm of
   (Just b) -> runJsonParser jsonParser (ParseField label:ctx) b
   _ -> ParseFailure ("expected field " <> label) ctx
 
+parseField_ :: JsonBinding a -> T.Text -> JsonParser a
+parseField_ jb label = withJsonObject $ \ctx hm -> case HM.lookup label hm of
+  (Just b) -> runJsonParser (jsonParser_ jb) (ParseField label:ctx) b
+  _ -> ParseFailure ("expected field " <> label) ctx
+
 parseFieldDef :: AdlValue a => T.Text -> a -> JsonParser a
 parseFieldDef label defv = withJsonObject $ \ctx hm -> case HM.lookup label hm of
   (Just b) -> runJsonParser jsonParser (ParseField label:ctx) b
+  _ -> pure defv
+
+parseFieldDef_ :: JsonBinding a -> T.Text -> a -> JsonParser a
+parseFieldDef_ jb label defv = withJsonObject $ \ctx hm -> case HM.lookup label hm of
+  (Just b) -> runJsonParser (jsonParser_ jb) (ParseField label:ctx) b
   _ -> pure defv
 
 parseUnion  :: ( T.Text -> JsonParser a) -> JsonParser a
@@ -198,6 +238,9 @@ parseUnionVoid a =  pure a <* parseNull
 
 parseUnionValue :: AdlValue b => (b -> a) -> JsonParser a
 parseUnionValue fa = fa <$> jsonParser
+
+parseUnionValue_ :: JsonBinding b -> (b -> a) -> JsonParser a
+parseUnionValue_ jb fa = fa <$> (jsonParser_ jb)
 
 withJsonObject :: (ParseContext -> JS.Object -> ParseResult a) -> JsonParser a
 withJsonObject f = JsonParser $ \ctx jv -> case jv of
@@ -277,6 +320,9 @@ instance AdlValue Double where
   jsonGen = JsonGen (JS.Number . SC.fromFloatDigits)
   jsonParser = withJsonNumber (\_ n -> pure (SC.toRealFloat n))
 
+jbDouble :: JsonBinding Double
+jbDouble = undefined
+
 instance AdlValue Float where
   atype _ = "Float"
   jsonGen = JsonGen (JS.Number . SC.fromFloatDigits)
@@ -306,6 +352,9 @@ instance forall a . (AdlValue a) => AdlValue [a] where
     (JS.Array a) -> let parse (i,jv) = runJsonParser jsonParser (ParseItem i:ctx) jv
                     in traverse parse (zip [0,1..] (V.toList a))
     _ -> ParseFailure "expected an array" ctx
+
+jbVector :: JsonBinding a -> JsonBinding [a]
+jbVector = undefined
 
 instance (AdlValue t) => AdlValue (Maybe t) where
   atype _ = T.concat
